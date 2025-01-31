@@ -169,3 +169,10 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# User-specific
+/Honeycomb.py
+/Macro_Honeycomb.svg
+/Pdwrapper.FCMacro
+/pdwrapper.py
+/Workbench_PartDesign.svg
