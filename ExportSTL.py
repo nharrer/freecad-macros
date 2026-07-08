@@ -13,6 +13,7 @@ export_settings = [
     ["High", (0.01, 0.1)],
     ["Med", (0.05, 0.3)],
     ["Low", (0.05, 1)],
+    ["Extra Low", (0.2, 2)],
 ]
 
 def export():
@@ -32,7 +33,7 @@ def export():
     for name, _ in export_settings:
         msgb.addButton(name, QtGui.QMessageBox.AcceptRole)
     msgb.addButton("Cancel", QtGui.QMessageBox.RejectRole)
-    msgb.exec_()
+    msgb.exec()
 
     msgbRep = msgb.clickedButton()
     (ld, ad) = (0, 0)
