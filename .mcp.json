@@ -1,0 +1,15 @@
+{
+    "mcpServers": {
+        "freecad": {
+            "command": "uv",
+            "args": [
+                "--directory",
+                "/home/norbert/projects/github/freecad-mcp/src/freecad_mcp/",
+                "run",
+                "freecad-mcp",
+                "--only-text-feedback"
+            ]
+        }
+    }
+}
+
