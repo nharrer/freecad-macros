@@ -10,10 +10,10 @@ import Part
 from PySide import QtGui
 
 export_settings = [
-    ["High", (0.01, 0.1)],
-    ["Med", (0.05, 0.3)],
-    ["Low", (0.05, 1)],
-    ["Extra Low", (0.2, 2)],
+    ["Super High", (0.005, 10)],
+    ["High", (0.01, 15)],
+    ["Med", (0.03, 20)],
+    ["Low", (0.1, 25)],
 ]
 
 def export():
