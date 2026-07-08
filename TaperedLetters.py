@@ -32,6 +32,86 @@ Usage from the FreeCAD Python console:
     tl.create_tapered_letter(App.ActiveDocument, "ShapeString001", height=10.0, name="Text")
 """
 
+# =============================================================================
+# CLAUDE: things tried that FAILED during development - read before
+# reintroducing any of these approaches, they are dead ends on this kind of
+# font/letter geometry, not just bad luck.
+#
+# - Part::Extrusion.TaperAngle directly on a holed letter face: fails with
+#   "OCCError: BRepCheck_Analyzer::Init() - NULL shape" at *any* angle
+#   magnitude (even 0.01deg) and either sign. Looked at first like a single
+#   sharp/spike corner was the cause, but it still failed after that corner
+#   was cleanly fillet-fixed - root cause was never fully pinned down for
+#   this direct approach, hence the offset+loft+cut pipeline instead.
+#
+# - Part.Face.makeOffset2D with join=1 (tangent) or join=2 (intersection):
+#   reliably raises "result of offsetting is null!" on real letter wires,
+#   both before and after cleanup. Only join=0 (arc) works - but it can
+#   leave near-zero-length sliver edges (down to ~0.0005mm) at tight/complex
+#   curve regions; see _strip_degenerate_edges.
+#
+# - Part::Loft fed a whole Face-with-hole as one section: silently IGNORES
+#   the inner wire and produces a solid with the hole filled in, with no
+#   error at all. Confirmed via volume matching the "hole ignored" case, not
+#   the correct one. This is why outer and inner wires must be lofted as two
+#   completely separate solids and combined with Part::Cut.
+#
+# - PartDesign::AdditiveLoft: fails with NULL shape on the *same* wires that
+#   loft fine via plain Part::Loft (tried both as a combined multi-wire
+#   profile and as an outer-only profile). More fragile than Part::Loft for
+#   reasons never identified - stick with Part::Loft + Part::Cut.
+#
+# - Turning offset-derived wires into Sketcher sketches: Sketcher rejects
+#   Part::GeomOffsetCurve outright ("Unsupported geometry type"). Converting
+#   via Shape.toNurbs() first "fixes" that, but the resulting BSpline
+#   geometry then breaks even plain Part::Loft (NULL shape) on wires that
+#   lofted fine before the toNurbs() round-trip. Don't route through
+#   sketches for this geometry; build lofts from raw Part::Feature wires.
+#
+# - Part::MultiFuse / Part::MultiCommon fed PartDesign::Body shapes: reliably
+#   produce a NULL shape (MultiFuse) or a silently empty result (MultiCommon,
+#   0 solids, no error) even when fusing/intersecting the exact same
+#   `.Shape` objects directly in Python works immediately. Also saw
+#   MultiCommon return a *stale* volume across several Size-less
+#   touch()+recompute() attempts, masking that it was actually stuck - only
+#   a fresh object revealed the real failure. Workaround used throughout:
+#   compute the boolean directly on .Shape in Python and store the result in
+#   a plain Part::Feature (loses live parametric association - see
+#   create_tapered_letter's docstring/comments).
+#
+# - PartDesign::Chamfer on a tapered letter's top rim: fails at *every*
+#   tested size (0.05mm-1.0mm) with self-intersecting/unorientable-shape or
+#   outright NULL shape - tried the full edge set, a sliver-filtered set, and
+#   an outline-only set (excluding the vertical fillet's tiny transition
+#   arcs). Confirmed independently via the FreeCAD GUI too (manual chamfer
+#   attempt, same failure). PartDesign::Fillet on the identical edges/radius
+#   works every time - use Fillet for the top rim, not Chamfer.
+#
+# - Morphological "opening" (erode then dilate by the same radius) to fix a
+#   concave/reflex spike corner: doesn't touch it at all - opening only
+#   rounds convex corners by construction. "Closing" (dilate then erode) was
+#   tried as the concave counterpart and failed outright at every radius
+#   tested (0.05-0.30mm) - the dilate step alone blows up on a thin
+#   near-cusp reflex feature before it can ever erode back.
+#
+# - Blanket "opening" applied to a whole wire to round ordinary convex
+#   corners: worked at some radii (e.g. 0.05, 0.15mm) but at others
+#   (e.g. 0.10, 0.40mm) introduced brand-new degenerate sliver edges at an
+#   unrelated spot on the wire - non-monotonic with radius, so "just use a
+#   smaller radius" isn't a safe assumption; each radius has to be verified.
+#
+# - Rounding a sharp corner with a naive 3-point arc (through the two trim
+#   points and a chord-midpoint blended toward the original vertex): valid,
+#   closed geometry, but only position-continuous (G0) - left a visible ~53
+#   degree kink at each junction, not truly tangent. Superseded by a proper
+#   two-tangent-line fillet construction (see _fillet_wire), which is
+#   G1-continuous. That construction still needs a small-enough radius for
+#   the corner's sharpness, or the projected trim point runs off into
+#   extrapolated nonsense on the underlying curve (seen concretely: radius=1
+#   on a ~24deg corner produced a vertex ~90mm outside the letter's actual
+#   bounding box).
+# =============================================================================
+
 import math
 
 import FreeCAD as App
