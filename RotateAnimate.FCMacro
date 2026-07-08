@@ -1,0 +1,103 @@
+import FreeCAD as App
+import FreeCADGui as Gui
+from PySide6 import QtWidgets, QtCore
+import time
+import math
+
+class AnimationPanel(QtWidgets.QWidget):
+    def __init__(self):
+        super().__init__()
+        self.initUI()
+        self.is_running = False
+
+    def initUI(self):
+        layout = QtWidgets.QVBoxLayout()
+
+        self.label_rot = QtWidgets.QLabel("Total Rotations:")
+        self.input_rot = QtWidgets.QDoubleSpinBox()
+        self.input_rot.setValue(1.0)
+
+        self.label_steps = QtWidgets.QLabel("Steps per Rotation:")
+        self.input_steps = QtWidgets.QSpinBox()
+        self.input_steps.setRange(1, 5000)
+        self.input_steps.setValue(1000)
+
+        self.label_delay = QtWidgets.QLabel("Delay (seconds):")
+        self.input_delay = QtWidgets.QDoubleSpinBox()
+        self.input_delay.setDecimals(3)
+        self.input_delay.setSingleStep(0.005)
+        self.input_delay.setValue(0.010)
+
+        self.btn_start = QtWidgets.QPushButton("Start Animation")
+        self.btn_start.clicked.connect(self.run_animation)
+
+        self.btn_stop = QtWidgets.QPushButton("Stop")
+        self.btn_stop.clicked.connect(self.stop_animation)
+        self.btn_stop.setStyleSheet("background-color: #ffcccc;")
+
+        layout.addWidget(self.label_rot)
+        layout.addWidget(self.input_rot)
+        layout.addWidget(self.label_steps)
+        layout.addWidget(self.input_steps)
+        layout.addWidget(self.label_delay)
+        layout.addWidget(self.input_delay)
+        layout.addWidget(self.btn_start)
+        layout.addWidget(self.btn_stop)
+
+        self.setLayout(layout)
+        self.setWindowTitle('Camera Spinner')
+        self.setWindowFlags(QtCore.Qt.WindowStaysOnTopHint)
+        self.setStyleSheet("QWidget { background-color: #f0f0f0; color: #000000; }"
+                           "QPushButton { background-color: #e0e0e0; }")
+
+    def stop_animation(self):
+        self.is_running = False
+
+    def run_animation(self):
+        if not App.ActiveDocument: return
+
+        from pivy import coin
+        view = Gui.ActiveDocument.ActiveView
+        self.is_running = True
+
+        total_rotations = self.input_rot.value()
+        steps_per_rot = self.input_steps.value()
+        delay = self.input_delay.value()
+        total_steps = int(total_rotations * steps_per_rot)
+
+        angle_rad = math.radians(360.0 / steps_per_rot)
+        rot = coin.SbRotation(coin.SbVec3f(0, 0, 1), angle_rad)
+
+        # Pivot = bounding box center of selected object, or full scene
+        region = view.getViewer().getSoRenderManager().getViewportRegion()
+        action = coin.SoGetBoundingBoxAction(region)
+        sel = Gui.Selection.getSelection()
+        if sel:
+            action.apply(sel[0].ViewObject.RootNode)
+        else:
+            action.apply(view.getSceneGraph())
+        pivot = action.getBoundingBox().getCenter()
+
+        for i in range(total_steps):
+            if not self.is_running: break
+
+            cam = view.getCameraNode()
+            pos = cam.position.getValue()
+
+            # Orbit camera position around pivot along world Z
+            rel = coin.SbVec3f(pos[0] - pivot[0], pos[1] - pivot[1], pos[2] - pivot[2])
+            rel = rot.multVec(rel)
+            cam.position = coin.SbVec3f(rel[0] + pivot[0], rel[1] + pivot[1], rel[2] + pivot[2])
+
+            # Recompute orientation to look at the pivot with Z-up
+            cam.pointAt(pivot, coin.SbVec3f(0, 0, 1))
+
+            Gui.updateGui()
+            QtCore.QCoreApplication.processEvents()
+            time.sleep(delay)
+
+        self.is_running = False
+
+# Launch
+panel = AnimationPanel()
+panel.show()
