@@ -176,3 +176,4 @@ cython_debug/
 /Pdwrapper.FCMacro
 /pdwrapper.py
 /Workbench_PartDesign.svg
+.playwright-mcp
