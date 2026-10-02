@@ -1,0 +1,111 @@
+# -*- coding: utf-8 -*-
+# Animates the Turbine document: Antrieb (drive) spins constantly, lifts off the
+# propeller and comes back. The propeller only spins while it is locked to Antrieb.
+# Run the macro again to stop the animation and restore the original placements.
+
+import time
+
+import FreeCAD as App
+from PySide6 import QtCore
+
+DOC_NAME = "Turbine"
+PROPELLER = "Body"  # Label "Propeller"
+ANTRIEB = "Body001"  # Label "Antrieb"
+
+DRIVE_SPEED = -360.0  # deg/s about +Z; clockwise seen from above = tightening direction
+THREAD_HEIGHT = 4.0  # mm of helical engagement (half turn, two starts)
+THREAD_RATE = 45.0  # deg per mm of relative twist along the thread; Antrieb screws in clockwise
+LIFT = 30.0  # mm of free travel above the thread
+FRAME_MS = 20
+
+# Phase durations in seconds. The engage time equals half a drive turn and
+# lift + hover + lower is a multiple of 0.5 s, so the thread phases match on re-entry.
+T_LOCKED = 1.5
+T_THREAD = 0.5
+T_LIFT = 1.0
+T_HOVER = 0.5
+T_LOWER = 1.0
+
+T1 = T_LOCKED
+T2 = T1 + T_THREAD
+T3 = T2 + T_LIFT
+T4 = T3 + T_HOVER
+T5 = T4 + T_LOWER
+CYCLE = T5 + T_THREAD
+
+
+def smoothstep(x):
+    return x * x * (3.0 - 2.0 * x)
+
+
+def pose(t):
+    """Return (antrieb_angle, antrieb_height, propeller_angle) for time t in seconds."""
+    t = t % CYCLE
+    a = DRIVE_SPEED * t
+
+    if t < T1:
+        # Locked: propeller is driven by Antrieb
+        return a, 0.0, a
+
+    if t < T2:
+        # Antrieb pulls straight back; the propeller keeps turning with it until the lugs clear
+        return a, THREAD_HEIGHT * (t - T1) / T_THREAD, a
+
+    # Propeller is free and stands still
+    p_free = DRIVE_SPEED * T2
+
+    if t < T3:
+        return a, THREAD_HEIGHT + LIFT * smoothstep((t - T2) / T_LIFT), p_free
+    if t < T4:
+        return a, THREAD_HEIGHT + LIFT, p_free
+    if t < T5:
+        return a, THREAD_HEIGHT + LIFT * (1.0 - smoothstep((t - T4) / T_LOWER)), p_free
+
+    # Antrieb screws itself in; the propeller stands still until the thread bottoms out
+    h = THREAD_HEIGHT * (1.0 - (t - T5) / T_THREAD)
+    offset = p_free - (DRIVE_SPEED * T5 - THREAD_RATE * THREAD_HEIGHT)
+    return a, h, a - THREAD_RATE * h + offset
+
+
+class TurbineAnimation:
+    def __init__(self, doc):
+        self.propeller = doc.getObject(PROPELLER)
+        self.antrieb = doc.getObject(ANTRIEB)
+        self.base_propeller = App.Placement(self.propeller.Placement)
+        self.base_antrieb = App.Placement(self.antrieb.Placement)
+        self.start = time.monotonic()
+        self.timer = QtCore.QTimer()
+        self.timer.timeout.connect(self.step)
+        self.timer.start(FRAME_MS)
+
+    def step(self):
+        try:
+            a, h, p = pose(time.monotonic() - self.start)
+            z = App.Vector(0, 0, 1)
+            self.antrieb.Placement = App.Placement(App.Vector(0, 0, h), App.Rotation(z, a)).multiply(self.base_antrieb)
+            self.propeller.Placement = App.Placement(App.Vector(), App.Rotation(z, p)).multiply(self.base_propeller)
+        except Exception as e:
+            # Document closed or objects deleted
+            print(f"TurbineAnimate stopped: {e}")
+            self.timer.stop()
+
+    def stop(self):
+        self.timer.stop()
+        try:
+            self.antrieb.Placement = self.base_antrieb
+            self.propeller.Placement = self.base_propeller
+            self.antrieb.purgeTouched()
+            self.propeller.purgeTouched()
+        except Exception:
+            pass
+
+
+if __name__ == "__main__":
+    running = getattr(App, "_turbine_animation", None)
+    if running is not None:
+        running.stop()
+        App._turbine_animation = None
+        print("TurbineAnimate stopped")
+    else:
+        App._turbine_animation = TurbineAnimation(App.getDocument(DOC_NAME))
+        print("TurbineAnimate started (run again to stop)")

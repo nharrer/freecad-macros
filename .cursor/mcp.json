@@ -4,7 +4,7 @@
             "command": "uv",
             "args": [
                 "--directory",
-                "/home/norbert/projects/github/freecad-mcp",
+                "/home/norbert/projects/github-others/freecad-mcp",
                 "run",
                 "freecad-mcp",
                 "--only-text-feedback"
